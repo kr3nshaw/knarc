@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 enum class NarcError
@@ -63,8 +64,8 @@ struct Narc
 	public:
 		NarcError GetError() const;
 
-		bool Pack(const std::string& fileName, const std::string& directory);
-		bool Unpack(const std::string& fileName, const std::string& directory);
+		bool Pack(const std::filesystem::path& fileName, const std::filesystem::path& directory);
+		bool Unpack(const std::filesystem::path& fileName, const std::filesystem::path& directory);
 
 	private:
 		NarcError error = NarcError::None;

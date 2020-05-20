@@ -34,7 +34,6 @@ int main(int argc, char* argv[])
 		cout << "USAGE: knarc [options] <inputs>" << endl << endl;
 		cout << "OPTIONS:" << endl;
 		cout << "\t-d\tDirectory to pack from/unpack to" << endl;
-		cout << "\t-f\tFile name of archive to pack to/unpack from" << endl;
 		cout << "\t-p\tPack" << endl;
 		cout << "\t-u\tUnpack" << endl;
 
@@ -42,7 +41,6 @@ int main(int argc, char* argv[])
 	}
 
 	string directory = "";
-	string fileName = "";
 
 	for (int i = 1; i < argc; ++i)
 	{
@@ -57,20 +55,9 @@ int main(int argc, char* argv[])
 
 			directory = argv[++i];
 		}
-		else if (!strcmp(argv[i], "-f"))
-		{
-			if (i == (argc - 1))
-			{
-				cerr << "ERROR: No file name specified" << endl;
-
-				return 1;
-			}
-
-			fileName = argv[++i];
-		}
 		else if (!strcmp(argv[i], "-p"))
 		{
-			if (fileName == "")
+			if (i == (argc - 1))
 			{
 				cerr << "ERROR: No NARC specified to pack to" << endl;
 
@@ -79,7 +66,7 @@ int main(int argc, char* argv[])
 
 			Narc narc;
 
-			if (!narc.Pack(fileName, directory))
+			if (!narc.Pack(argv[++i], directory))
 			{
 				PrintError(narc.GetError());
 
@@ -88,7 +75,7 @@ int main(int argc, char* argv[])
 		}
 		else if (!strcmp(argv[i], "-u"))
 		{
-			if (fileName == "")
+			if (i == (argc - 1))
 			{
 				cerr << "ERROR: No NARC specified to unpack from" << endl;
 
@@ -97,7 +84,7 @@ int main(int argc, char* argv[])
 
 			Narc narc;
 
-			if (!narc.Unpack(fileName, directory))
+			if (!narc.Unpack(argv[++i], directory))
 			{
 				PrintError(narc.GetError());
 

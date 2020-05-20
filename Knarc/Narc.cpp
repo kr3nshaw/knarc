@@ -1,44 +1,19 @@
 #include "Narc.h"
 
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <string>
 
-#ifdef _WIN32
-#include <direct.h>
-#else
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#endif
-
 using namespace std;
-
-void Chdir(const string& path)
-{
-#ifdef _WIN32
-	_chdir(path.c_str());
-#else
-	chdir(path.c_str());
-#endif
-}
-
-void Mkdir(const string& path)
-{
-#ifdef _WIN32
-	_mkdir(path.c_str());
-#else
-	mkdir(path.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
-#endif
-}
 
 NarcError Narc::GetError() const
 {
 	return error;
 }
 
-bool Narc::Pack(const string& fileName, const string& directory)
+bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& directory)
 {
 	ofstream ofs(fileName, ios::out | ios::binary);
 
@@ -49,7 +24,7 @@ bool Narc::Pack(const string& fileName, const string& directory)
 		goto Cleanup;
 	}
 
-	Chdir(directory);
+	filesystem::current_path(directory);
 
 	// TODO: Implement packing
 
@@ -59,7 +34,7 @@ bool Narc::Pack(const string& fileName, const string& directory)
 	return error == NarcError::None ? true : false;
 }
 
-bool Narc::Unpack(const string& fileName, const string& directory)
+bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& directory)
 {
 	FileAllocationTableEntry* fatEntries = nullptr;
 	uint16_t* fntEntries = nullptr;
@@ -167,8 +142,8 @@ bool Narc::Unpack(const string& fileName, const string& directory)
 		goto Cleanup;
 	}
 
-	Mkdir(directory);
-	Chdir(directory);
+	filesystem::create_directory(directory);
+	filesystem::current_path(directory);
 
 	for (int i = 0; i < fat.FileCount; ++i)
 	{
@@ -176,13 +151,15 @@ bool Narc::Unpack(const string& fileName, const string& directory)
 		ifs.read(buffer, fatEntries[i].End - fatEntries[i].Start);
 
 		ostringstream oss;
-		oss << setfill('0') << setw(4) << i;
+		oss << fileName.stem().string() << "_" << setfill('0') << setw(4) << i << ".bin";
 
-		ofstream ofs(oss.str() + ".bin", ios::out | ios::binary);
+		ofstream ofs(oss.str(), ios::out | ios::binary);
 
 		if (!ofs.good())
 		{
 			error = NarcError::InvalidOutputFile;
+
+			delete[] buffer;
 
 			goto Cleanup;
 		}
@@ -194,11 +171,6 @@ bool Narc::Unpack(const string& fileName, const string& directory)
 	}
 
 	Cleanup:
-	if (buffer)
-	{
-		delete[] buffer;
-	}
-
 	if (fntEntries)
 	{
 		delete[] fntEntries;
