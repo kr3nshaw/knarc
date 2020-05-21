@@ -41,15 +41,13 @@ int main(int argc, char* argv[])
 	}
 
 	string directory = "";
-
-	for (int i = 1; i < argc; ++i)
+	for (int i = 1; i <= argc; ++i)
 	{
 		if (!strcmp(argv[i], "-d"))
 		{
 			if (i == (argc - 1))
 			{
 				cerr << "ERROR: No directory specified" << endl;
-
 				return 1;
 			}
 
@@ -60,7 +58,6 @@ int main(int argc, char* argv[])
 			if (i == (argc - 1))
 			{
 				cerr << "ERROR: No NARC specified to pack to" << endl;
-
 				return 1;
 			}
 

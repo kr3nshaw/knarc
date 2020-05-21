@@ -30,18 +30,19 @@ struct Header
 	uint16_t ChunkCount;
 };
 
+struct FileAllocationTableEntry
+{
+	uint32_t Start;
+	uint32_t End;
+};
+
 struct FileAllocationTable
 {
 	uint32_t Id;
 	uint32_t ChunkSize;
 	uint16_t FileCount;
 	uint16_t Reserved;
-};
-
-struct FileAllocationTableEntry
-{
-	uint32_t Start;
-	uint32_t End;
+	std::vector<FileAllocationTableEntry>* Entries;
 };
 
 struct FileNameTable
@@ -53,10 +54,16 @@ struct FileNameTable
 	uint16_t DirectoryCount;
 };
 
+struct FileImageEntry
+{
+	char* file;
+};
+
 struct FileImages
 {
 	uint32_t Id;
 	uint32_t ChunkSize;
+	std::vector<FileImageEntry>* files;
 };
 
 struct Narc
