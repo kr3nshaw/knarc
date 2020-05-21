@@ -51,7 +51,12 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 		if (fatEntries.size() > 1)
 		{
-			fatEntries.back().Start = fatEntries.rbegin()[1].End + (fatEntries.rbegin()[1].End % 4);
+			fatEntries.back().Start = fatEntries.rbegin()[1].End;
+
+			if ((fatEntries.rbegin()[1].End % 4) != 0)
+			{
+				fatEntries.back().Start += 4 - (fatEntries.rbegin()[1].End % 4);
+			}
 		}
 
 		fatEntries.back().End = fatEntries.back().Start + file.file_size();
@@ -123,10 +128,13 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 		ofs.write(buffer.get(), length);
 
-		for (int i = ofs.tellp() % 4; i-- > 0; )
+		if ((ofs.tellp() % 4) != 0)
 		{
-			char ff = 0xFF;
-			ofs.write(&ff, sizeof(char));
+			for (int i = 4 - (ofs.tellp() % 4); i-- > 0; )
+			{
+				char ff = 0xFF;
+				ofs.write(&ff, sizeof(char));
+			}
 		}
 	}
 
@@ -195,7 +203,7 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 		ifs.read(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
 
 		ostringstream oss;
-		oss << fileName.stem().string() << "_" << setfill('0') << setw(4) << i << ".bin";
+		oss << fileName.stem().string() << "_" << setfill('0') << setw(8) << i << ".bin";
 
 		ofstream ofs(oss.str(), ios::binary);
 
