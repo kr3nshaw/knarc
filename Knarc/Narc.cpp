@@ -3,9 +3,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <ios>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace std;
 
@@ -34,13 +36,94 @@ NarcError Narc::GetError() const
 
 bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& directory)
 {
-	ofstream ofs(fileName, ios::out | ios::binary);
+	ofstream ofs(fileName, ios::binary);
 
 	if (!ofs.good()) { return Cleanup(ofs, NarcError::InvalidOutputFile); }
 
-	filesystem::current_path(directory);
+	vector<FileAllocationTableEntry> fatEntries;
 
-	// TODO: Implement packing
+	for (const auto& file : filesystem::directory_iterator(directory))
+	{
+		fatEntries.push_back(FileAllocationTableEntry
+			{
+				.Start = 0,
+				.End = 0
+			});
+
+		if (fatEntries.size() > 1)
+		{
+			fatEntries.back().Start = fatEntries.rbegin()[1].End + (fatEntries.rbegin()[1].End % 4);
+		}
+
+		fatEntries.back().End = fatEntries.back().Start + file.file_size();
+	}
+
+	FileAllocationTable fat
+	{
+		.Id = 0x46415442,
+		.ChunkSize = 12 + fatEntries.size() * 8,
+		.FileCount = static_cast<uint16_t>(fatEntries.size()),
+		.Reserved = 0x0
+	};
+
+	FileImages fi
+	{
+		.Id = 0x46494D47,
+		.ChunkSize = 8 + fatEntries.back().End
+	};
+
+	FileNameTable fnt
+	{
+		.Id = 0x464E5442,
+		.ChunkSize = 0x10,
+		.SubTableOffset = 0x4,
+		.FirstFileId = 0x0,
+		.DirectoryCount = 0x1
+	};
+
+	// TODO: Actually write FNT sub-tables
+
+	Header header
+	{
+		.Id = 0x4352414E,
+		.ByteOrderMark = 0xFFFE,
+		.Version = 0x100,
+		.FileSize = 0x10 + fat.ChunkSize + fnt.ChunkSize + fi.ChunkSize,
+		.ChunkSize = 0x10,
+		.ChunkCount = 0x3
+	};
+
+	ofs.write(reinterpret_cast<char*>(&header), sizeof(Header));
+	ofs.write(reinterpret_cast<char*>(&fat), sizeof(FileAllocationTable));
+
+	for (auto& entry : fatEntries)
+	{
+		ofs.write(reinterpret_cast<char*>(&entry), sizeof(FileAllocationTableEntry));
+	}
+
+	ofs.write(reinterpret_cast<char*>(&fnt), sizeof(FileNameTable));
+	ofs.write(reinterpret_cast<char*>(&fi), sizeof(FileImages));
+
+	for (const auto& file : filesystem::directory_iterator(directory))
+	{
+		ifstream ifs(file.path(), ios::binary | ios::ate);
+
+		if (!ifs.good()) { return Cleanup(ofs, NarcError::InvalidInputFile); }
+
+		streampos length = ifs.tellg();
+		unique_ptr<char[]> buffer(new char[length]);
+
+		ifs.seekg(0);
+		ifs.read(buffer.get(), length);
+
+		ofs.write(buffer.get(), length);
+
+		for (int i = ofs.tellp() % 4; i-- > 0; )
+		{
+			char ff = 0xFF;
+			ofs.write(&ff, sizeof(char));
+		}
+	}
 
 	ofs.close();
 
@@ -49,7 +132,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& directory)
 {
-	ifstream ifs(fileName, ios::in | ios::binary);
+	ifstream ifs(fileName, ios::binary);
 
 	if (!ifs.good()) { return Cleanup(ifs, NarcError::InvalidInputFile); }
 
@@ -89,7 +172,7 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 
 	// TODO: Actually read FNT sub-tables
 
-	ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + static_cast<uint64_t>(fat.ChunkSize) + static_cast<uint64_t>(fnt.ChunkSize));
+	ifs.seekg(header.ChunkSize + fat.ChunkSize + fnt.ChunkSize);
 
 	FileImages fi;
 	ifs.read(reinterpret_cast<char*>(&fi), sizeof(FileImages));
@@ -101,13 +184,15 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 
 	for (int i = 0; i < fat.FileCount; ++i)
 	{
+		ifs.seekg(header.ChunkSize + fat.ChunkSize + fnt.ChunkSize + 8 + fatEntries[i].Start);
+
 		unique_ptr<char[]> buffer(new char[fatEntries[i].End - fatEntries[i].Start]);
 		ifs.read(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
 
 		ostringstream oss;
 		oss << fileName.stem().string() << "_" << setfill('0') << setw(4) << i << ".bin";
 
-		ofstream ofs(oss.str(), ios::out | ios::binary);
+		ofstream ofs(oss.str(), ios::binary);
 
 		if (!ofs.good())
 		{
