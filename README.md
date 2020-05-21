@@ -1,4 +1,4 @@
-# caesar
+# knarc
 A tool that extracts the contents of Nitro Archives.
 
 # Usage
