@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 enum class NarcError
@@ -66,7 +67,7 @@ struct FileImages
 	std::vector<FileImageEntry>* files;
 };
 
-struct Narc
+class Narc
 {
 	public:
 		NarcError GetError() const;
@@ -76,4 +77,7 @@ struct Narc
 
 	private:
 		NarcError error = NarcError::None;
+
+		bool Cleanup(std::ifstream& ifs, const NarcError& ne);
+		bool Cleanup(std::ofstream& ofs, const NarcError& ne);
 };
