@@ -3,10 +3,29 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 #include <string>
 
 using namespace std;
+
+bool Narc::Cleanup(ifstream& ifs, const NarcError& ne)
+{
+	ifs.close();
+
+	error = ne;
+
+	return false;
+}
+
+bool Narc::Cleanup(ofstream& ofs, const NarcError& ne)
+{
+	ofs.close();
+
+	error = ne;
+
+	return false;
+}
 
 NarcError Narc::GetError() const
 {
@@ -17,18 +36,12 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 {
 	ofstream ofs(fileName, ios::out | ios::binary);
 
-	if (!ofs.good())
-	{
-		error = NarcError::InvalidOutputFile;
-
-		goto Cleanup;
-	}
+	if (!ofs.good()) { return Cleanup(ofs, NarcError::InvalidOutputFile); }
 
 	filesystem::current_path(directory);
 
 	// TODO: Implement packing
 
-	Cleanup:
 	ofs.close();
 
 	return error == NarcError::None ? true : false;
@@ -36,75 +49,26 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& directory)
 {
-	FileAllocationTableEntry* fatEntries = nullptr;
-	uint16_t* fntEntries = nullptr;
-	char* buffer = nullptr;
-
 	ifstream ifs(fileName, ios::in | ios::binary);
 
-	if (!ifs.good())
-	{
-		error = NarcError::InvalidInputFile;
-
-		goto Cleanup;
-	}
+	if (!ifs.good()) { return Cleanup(ifs, NarcError::InvalidInputFile); }
 
 	Header header;
 	ifs.read(reinterpret_cast<char*>(&header), sizeof(Header));
 
-	if (header.Id != 0x4352414E)
-	{
-		error = NarcError::InvalidHeaderId;
-
-		goto Cleanup;
-	}
-
-	if (header.ByteOrderMark != 0xFFFE)
-	{
-		error = NarcError::InvalidByteOrderMark;
-
-		goto Cleanup;
-	}
-
-	if (header.Version != 0x100)
-	{
-		error = NarcError::InvalidVersion;
-
-		goto Cleanup;
-	}
-
-	if (header.ChunkSize != 0x10)
-	{
-		error = NarcError::InvalidHeaderSize;
-
-		goto Cleanup;
-	}
-
-	if (header.ChunkCount != 0x3)
-	{
-		error = NarcError::InvalidChunkCount;
-
-		goto Cleanup;
-	}
+	if (header.Id != 0x4352414E) { return Cleanup(ifs, NarcError::InvalidHeaderId); }
+	if (header.ByteOrderMark != 0xFFFE) { return Cleanup(ifs, NarcError::InvalidByteOrderMark); }
+	if (header.Version != 0x100) { return Cleanup(ifs, NarcError::InvalidVersion); }
+	if (header.ChunkSize != 0x10) { return Cleanup(ifs, NarcError::InvalidHeaderSize); }
+	if (header.ChunkCount != 0x3) { return Cleanup(ifs, NarcError::InvalidChunkCount); }
 
 	FileAllocationTable fat;
 	ifs.read(reinterpret_cast<char*>(&fat), sizeof(FileAllocationTable));
 
-	if (fat.Id != 0x46415442)
-	{
-		error = NarcError::InvalidFileAllocationTableId;
+	if (fat.Id != 0x46415442) { return Cleanup(ifs, NarcError::InvalidFileAllocationTableId); }
+	if (fat.Reserved != 0x0) { return Cleanup(ifs, NarcError::InvalidFileAllocationTableReserved); }
 
-		goto Cleanup;
-	}
-
-	if (fat.Reserved != 0x0)
-	{
-		error = NarcError::InvalidFileAllocationTableReserved;
-
-		goto Cleanup;
-	}
-
-	fatEntries = new FileAllocationTableEntry[fat.FileCount];
+	unique_ptr<FileAllocationTableEntry[]> fatEntries(new FileAllocationTableEntry[fat.FileCount]);
 
 	for (int i = 0; i < fat.FileCount; ++i)
 	{
@@ -114,14 +78,9 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 	FileNameTable fnt;
 	ifs.read(reinterpret_cast<char*>(&fnt), sizeof(FileNameTable));
 
-	if (fnt.Id != 0x464E5442)
-	{
-		error = NarcError::InvalidFileNameTableId;
+	if (fnt.Id != 0x464E5442) { return Cleanup(ifs, NarcError::InvalidFileNameTableId); }
 
-		goto Cleanup;
-	}
-
-	fntEntries = new uint16_t[fnt.DirectoryCount];
+	unique_ptr<uint16_t[]> fntEntries(new uint16_t[fnt.DirectoryCount]);
 
 	for (int i = 0; i < fnt.DirectoryCount; ++i)
 	{
@@ -135,20 +94,15 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 	FileImages fi;
 	ifs.read(reinterpret_cast<char*>(&fi), sizeof(FileImages));
 
-	if (fi.Id != 0x46494D47)
-	{
-		error = NarcError::InvalidFileImagesId;
-
-		goto Cleanup;
-	}
+	if (fi.Id != 0x46494D47) { return Cleanup(ifs, NarcError::InvalidFileImagesId); }
 
 	filesystem::create_directory(directory);
 	filesystem::current_path(directory);
 
 	for (int i = 0; i < fat.FileCount; ++i)
 	{
-		buffer = new char[fatEntries[i].End - fatEntries[i].Start];
-		ifs.read(buffer, fatEntries[i].End - fatEntries[i].Start);
+		unique_ptr<char[]> buffer(new char[fatEntries[i].End - fatEntries[i].Start]);
+		ifs.read(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
 
 		ostringstream oss;
 		oss << fileName.stem().string() << "_" << setfill('0') << setw(4) << i << ".bin";
@@ -157,28 +111,13 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 
 		if (!ofs.good())
 		{
-			error = NarcError::InvalidOutputFile;
+			ofs.close();
 
-			delete[] buffer;
-
-			goto Cleanup;
+			return Cleanup(ifs, NarcError::InvalidOutputFile);
 		}
 
-		ofs.write(buffer, fatEntries[i].End - fatEntries[i].Start);
+		ofs.write(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
 		ofs.close();
-
-		delete[] buffer;
-	}
-
-	Cleanup:
-	if (fntEntries)
-	{
-		delete[] fntEntries;
-	}
-
-	if (fatEntries)
-	{
-		delete[] fatEntries;
 	}
 
 	ifs.close();
