@@ -6,7 +6,6 @@
 #include <ios>
 #include <memory>
 #include <sstream>
-#include <string>
 #include <vector>
 
 using namespace std;
@@ -108,13 +107,19 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	{
 		ifstream ifs(file.path(), ios::binary | ios::ate);
 
-		if (!ifs.good()) { return Cleanup(ofs, NarcError::InvalidInputFile); }
+		if (!ifs.good())
+		{
+			ifs.close();
+
+			return Cleanup(ofs, NarcError::InvalidInputFile);
+		}
 
 		streampos length = ifs.tellg();
 		unique_ptr<char[]> buffer(new char[length]);
 
 		ifs.seekg(0);
 		ifs.read(buffer.get(), length);
+		ifs.close();
 
 		ofs.write(buffer.get(), length);
 
