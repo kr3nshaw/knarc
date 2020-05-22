@@ -54,6 +54,14 @@ struct FileNameTable
 	uint16_t DirectoryCount;
 };
 
+struct FileNameTableEntry
+{
+	uint8_t NameLength;
+	char* Name;
+	uint16_t SubDirectoryID;
+
+};
+
 struct FileImages
 {
 	uint32_t Id;

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iomanip>
 #include <ios>
+#include <iostream>
 #include <memory>
 #include <sstream>
 #include <vector>
@@ -66,7 +67,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	FileAllocationTable fat
 	{
 		.Id = 0x46415442,
-		.ChunkSize = sizeof(FileAllocationTable) + (fatEntries.size() * sizeof(FileAllocationTableEntry)),
+		.ChunkSize = sizeof(FileAllocationTable) + ((uint32_t)fatEntries.size() * sizeof(FileAllocationTableEntry)),
 		.FileCount = static_cast<uint16_t>(fatEntries.size()),
 		.Reserved = 0x0
 	};
@@ -178,11 +179,40 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 	}
 
 	FileNameTable fnt;
+	vector<FileNameTableEntry> FileNameTableEntries;
 	ifs.read(reinterpret_cast<char*>(&fnt), sizeof(FileNameTable));
 
 	if (fnt.Id != 0x464E5442) { return Cleanup(ifs, NarcError::InvalidFileNameTableId); }
 
-	// TODO: Actually read FNT sub-tables
+	// Attempt to read subtables.
+	if (fnt.ChunkSize > 0x10) // Temporary until I figure out wtf is going on
+	{
+		uint32_t fimg_check;
+		ifs.read(reinterpret_cast<char*>(&fimg_check), 4);
+		while (fimg_check != 0x46494D47)
+		{
+			ifs.seekg((uint32_t)ifs.tellg() - 4);
+
+			FileNameTableEntry e;
+			// Get Name Length.
+			ifs.read(reinterpret_cast<char*>(&e.NameLength), 1);
+
+			// Create and write to a buffer to store the name.
+			unique_ptr<char[]> temp(new char[e.NameLength]);
+			ifs.read(reinterpret_cast<char*>(&temp), e.NameLength);
+			temp[e.NameLength] = '\0'; // Null terminator
+
+			// Assign the name to the entry.
+			e.Name = reinterpret_cast<char*>(&temp);
+
+			// Read SubDirectoryID.
+			ifs.read(reinterpret_cast<char*>(&e.SubDirectoryID), 2);
+
+			// Add to Vector.
+			FileNameTableEntries.push_back(e);
+			ifs.read(reinterpret_cast<char*>(&fimg_check), 4);
+		}
+	}
 
 	FileImages fi;
 	ifs.read(reinterpret_cast<char*>(&fi), sizeof(FileImages));
@@ -200,7 +230,16 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 		ifs.read(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
 
 		ostringstream oss;
-		oss << fileName.stem().string() << "_" << setfill('0') << setw(8) << i << ".bin";
+
+		if (fnt.ChunkSize > 0x10) // Temporary until I figure out wtf is going on
+		{
+			oss << FileNameTableEntries.front().Name;
+			FileNameTableEntries.erase(FileNameTableEntries.begin());
+		}
+		else
+		{
+			oss << fileName.stem().string() << "_" << setfill('0') << setw(8) << i << ".bin";
+		}
 
 		ofstream ofs(oss.str(), ios::binary);
 
