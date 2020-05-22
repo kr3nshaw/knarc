@@ -6,11 +6,23 @@
 #include <iomanip>
 #include <ios>
 #include <memory>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
 
 using namespace std;
+
+void Narc::AlignDword(ofstream& ofs, uint8_t paddingChar)
+{
+	if ((ofs.tellp() % 4) != 0)
+	{
+		for (int i = 4 - (ofs.tellp() % 4); i-- > 0; )
+		{
+			ofs.write(reinterpret_cast<char*>(&paddingChar), sizeof(uint8_t));
+		}
+	}
+}
 
 bool Narc::Cleanup(ifstream& ifs, const NarcError& ne)
 {
@@ -42,13 +54,14 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	if (!ofs.good()) { return Cleanup(ofs, NarcError::InvalidOutputFile); }
 
 	vector<FileAllocationTableEntry> fatEntries;
+	vector<string> fileNames;
 
 	for (const auto& file : filesystem::directory_iterator(directory))
 	{
 		fatEntries.push_back(FileAllocationTableEntry
 			{
-				.Start = 0,
-				.End = 0
+				.Start = 0x0,
+				.End = 0x0
 			});
 
 		if (fatEntries.size() > 1)
@@ -62,6 +75,8 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		}
 
 		fatEntries.back().End = fatEntries.back().Start + static_cast<uint32_t>(file.file_size());
+
+		fileNames.push_back(file.path().filename().string());
 	}
 
 	FileAllocationTable fat
@@ -72,13 +87,48 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		.Reserved = 0x0
 	};
 
+	vector<FileNameTableEntry> fntEntries;
+
+	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
+	{
+		// TODO: Actually write FNT sub-tables
+		fntEntries.push_back(FileNameTableEntry
+			{
+				.Offset = 0x8,
+				.FirstFileId = 0x0,
+				.Utility = 0x1
+			});
+	}
+	else
+	{
+		fntEntries.push_back(FileNameTableEntry
+			{
+				.Offset = 0x4,
+				.FirstFileId = 0x0,
+				.Utility = 0x1
+			});
+	}
+
 	FileNameTable fnt
 	{
 		.Id = 0x464E5442,
-		.ChunkSize = 0x10,
+		.ChunkSize = 0x8 + (fntEntries.size() * sizeof(FileNameTableEntry))
 	};
 
-	// TODO: Actually write FNT sub-tables
+	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
+	{
+		for (const auto& fn : fileNames)
+		{
+			fnt.ChunkSize += 0x1 + fn.size();
+		}
+
+		fnt.ChunkSize += 0x1;
+	}
+
+	if ((fnt.ChunkSize % 4) != 0)
+	{
+		fnt.ChunkSize += 4 - (fnt.ChunkSize % 4);
+	}
 
 	FileImages fi
 	{
@@ -110,6 +160,28 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	}
 
 	ofs.write(reinterpret_cast<char*>(&fnt), sizeof(FileNameTable));
+
+	for (auto& entry : fntEntries)
+	{
+		ofs.write(reinterpret_cast<char*>(&entry), sizeof(FileNameTableEntry));
+	}
+
+	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
+	{
+		for (const auto& fn : fileNames)
+		{
+			uint8_t fnLength = static_cast<uint8_t>(fn.size());
+
+			ofs.write(reinterpret_cast<char*>(&fnLength), sizeof(uint8_t));
+			ofs.write(fn.c_str(), fn.size());
+		}
+
+		uint8_t zero = 0x00;
+		ofs.write(reinterpret_cast<char*>(&zero), sizeof(uint8_t));
+	}
+
+	AlignDword(ofs, 0xFF);
+
 	ofs.write(reinterpret_cast<char*>(&fi), sizeof(FileImages));
 
 	for (const auto& file : filesystem::directory_iterator(directory))
@@ -132,14 +204,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 		ofs.write(buffer.get(), length);
 
-		if ((ofs.tellp() % 4) != 0)
-		{
-			for (int i = 4 - (ofs.tellp() % 4); i-- > 0; )
-			{
-				uint8_t ff = 0xFF;
-				ofs.write(reinterpret_cast<char*>(&ff), sizeof(uint8_t));
-			}
-		}
+		AlignDword(ofs, 0xFF);
 	}
 
 	ofs.close();

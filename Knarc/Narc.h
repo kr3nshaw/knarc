@@ -75,6 +75,8 @@ class Narc
 	private:
 		NarcError error = NarcError::None;
 
+		void AlignDword(std::ofstream& ofs, uint8_t paddingChar);
+
 		bool Cleanup(std::ifstream& ifs, const NarcError& ne);
 		bool Cleanup(std::ofstream& ofs, const NarcError& ne);
 };
