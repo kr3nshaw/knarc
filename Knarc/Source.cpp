@@ -20,6 +20,7 @@ void PrintError(NarcError error)
 		case NarcError::InvalidFileAllocationTableId:		cout << "ERROR: Invalid file allocation table ID" << endl;					break;
 		case NarcError::InvalidFileAllocationTableReserved:	cout << "ERROR: Invalid file allocation table reserved section" << endl;	break;
 		case NarcError::InvalidFileNameTableId:				cout << "ERROR: Invalid file name table ID" << endl;						break;
+		case NarcError::InvalidFileNameTableEntryId:		cout << "ERROR: Invalid file name table entry ID" << endl;					break;
 		case NarcError::InvalidFileImagesId:				cout << "ERROR: Invalid file images ID" << endl;							break;
 		case NarcError::InvalidOutputFile:					cout << "ERROR: Invalid output file" << endl;								break;
 		default:											cout << "ERROR: Unknown error???" << endl;									break;

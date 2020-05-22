@@ -5,9 +5,9 @@
 #include <fstream>
 #include <iomanip>
 #include <ios>
-#include <iostream>
 #include <memory>
 #include <sstream>
+#include <string>
 #include <vector>
 
 using namespace std;
@@ -61,7 +61,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 			}
 		}
 
-		fatEntries.back().End = fatEntries.back().Start + file.file_size();
+		fatEntries.back().End = fatEntries.back().Start + static_cast<uint32_t>(file.file_size());
 	}
 
 	FileAllocationTable fat
@@ -76,9 +76,6 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	{
 		.Id = 0x464E5442,
 		.ChunkSize = 0x10,
-		.SubTableOffset = 0x4,
-		.FirstFileId = 0x0,
-		.DirectoryCount = 0x1
 	};
 
 	// TODO: Actually write FNT sub-tables
@@ -127,7 +124,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		}
 
 		streampos length = ifs.tellg();
-		unique_ptr<char[]> buffer(new char[length]);
+		unique_ptr<char[]> buffer(new char[static_cast<unsigned int>(length)]);
 
 		ifs.seekg(0);
 		ifs.read(buffer.get(), length);
@@ -184,34 +181,55 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 
 	if (fnt.Id != 0x464E5442) { return Cleanup(ifs, NarcError::InvalidFileNameTableId); }
 
-	// Attempt to read subtables.
-	if (fnt.ChunkSize > 0x10) // Temporary until I figure out wtf is going on
+	vector<FileNameTableEntry> fntEntries;
+
+	do
 	{
-		uint32_t fimg_check;
-		ifs.read(reinterpret_cast<char*>(&fimg_check), 4);
-		while (fimg_check != 0x46494D47)
+		fntEntries.push_back(FileNameTableEntry());
+
+		ifs.read(reinterpret_cast<char*>(&fntEntries.back().Offset), sizeof(uint32_t));
+		ifs.read(reinterpret_cast<char*>(&fntEntries.back().FirstFileId), sizeof(uint16_t));
+		ifs.read(reinterpret_cast<char*>(&fntEntries.back().Utility), sizeof(uint16_t));
+	} while (static_cast<uint32_t>(ifs.tellg()) < (header.ChunkSize + fat.ChunkSize + sizeof(FileNameTable) + fntEntries[0].Offset));
+
+	unique_ptr<string[]> fileNames(new string[0xF000]);
+
+	for (size_t i = 0; i < fntEntries.size(); ++i)
+	{
+		ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + fat.ChunkSize + sizeof(FileNameTable) + fntEntries[i].Offset);
+
+		uint16_t id = 0;
+
+		for (uint8_t length = 0x80; length != 0x00; ifs.read(reinterpret_cast<char*>(&length), sizeof(uint8_t)), ++id)
 		{
-			ifs.seekg((uint32_t)ifs.tellg() - 4);
+			if (length <= 0x7F)
+			{
+				for (int j = 0; j < length; ++j)
+				{
+					uint8_t c;
+					ifs.read(reinterpret_cast<char*>(&c), sizeof(uint8_t));
 
-			FileNameTableEntry e;
-			// Get Name Length.
-			ifs.read(reinterpret_cast<char*>(&e.NameLength), 1);
-
-			// Create and write to a buffer to store the name.
-			unique_ptr<char[]> temp(new char[e.NameLength]);
-			ifs.read(reinterpret_cast<char*>(&temp), e.NameLength);
-			temp[e.NameLength] = '\0'; // Null terminator
-
-			// Assign the name to the entry.
-			e.Name = reinterpret_cast<char*>(&temp);
-
-			// Read SubDirectoryID.
-			ifs.read(reinterpret_cast<char*>(&e.SubDirectoryID), 2);
-
-			// Add to Vector.
-			FileNameTableEntries.push_back(e);
-			ifs.read(reinterpret_cast<char*>(&fimg_check), 4);
+					fileNames.get()[fntEntries[i].FirstFileId + id] += c;
+				}
+			}
+			else if (length == 0x80)
+			{
+				// Reserved
+			}
+			else if (length <= 0xFF)
+			{
+				// TODO: Implement directory handling
+			}
+			else
+			{
+				return Cleanup(ifs, NarcError::InvalidFileNameTableEntryId);
+			}
 		}
+	}
+
+	if ((ifs.tellg() % 4) != 0)
+	{
+		ifs.seekg(4 - (ifs.tellg() % 4), ios::cur);
 	}
 
 	FileImages fi;
@@ -224,21 +242,20 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 
 	for (int i = 0; i < fat.FileCount; ++i)
 	{
-		ifs.seekg(header.ChunkSize + fat.ChunkSize + fnt.ChunkSize + 8 + fatEntries[i].Start);
+		ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + fat.ChunkSize + fnt.ChunkSize + 8 + fatEntries[i].Start);
 
 		unique_ptr<char[]> buffer(new char[fatEntries[i].End - fatEntries[i].Start]);
 		ifs.read(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
 
 		ostringstream oss;
 
-		if (fnt.ChunkSize > 0x10) // Temporary until I figure out wtf is going on
+		if (fnt.ChunkSize == 0x10)
 		{
-			oss << FileNameTableEntries.front().Name;
-			FileNameTableEntries.erase(FileNameTableEntries.begin());
+			oss << fileName.stem().string() << "_" << setfill('0') << setw(8) << i << ".bin";
 		}
 		else
 		{
-			oss << fileName.stem().string() << "_" << setfill('0') << setw(8) << i << ".bin";
+			oss << fileNames.get()[i + 1];
 		}
 
 		ofstream ofs(oss.str(), ios::binary);

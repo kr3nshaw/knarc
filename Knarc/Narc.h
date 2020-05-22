@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <string>
 
 enum class NarcError
 {
@@ -17,6 +16,7 @@ enum class NarcError
 	InvalidFileAllocationTableId,
 	InvalidFileAllocationTableReserved,
 	InvalidFileNameTableId,
+	InvalidFileNameTableEntryId,
 	InvalidFileImagesId,
 	InvalidOutputFile
 };
@@ -49,17 +49,13 @@ struct FileNameTable
 {
 	uint32_t Id;
 	uint32_t ChunkSize;
-	uint32_t SubTableOffset;
-	uint16_t FirstFileId;
-	uint16_t DirectoryCount;
 };
 
 struct FileNameTableEntry
 {
-	uint8_t NameLength;
-	char* Name;
-	uint16_t SubDirectoryID;
-
+	uint32_t Offset;
+	uint16_t FirstFileId;
+	uint16_t Utility;
 };
 
 struct FileImages
