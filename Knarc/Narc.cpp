@@ -1,5 +1,6 @@
 #include "Narc.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -70,17 +71,6 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		.Reserved = 0x0
 	};
 
-	FileImages fi
-	{
-		.Id = 0x46494D47,
-		.ChunkSize = sizeof(FileImages) + fatEntries.back().End
-	};
-
-	if ((fi.ChunkSize % 4) != 0)
-	{
-		fi.ChunkSize += 4 - (fi.ChunkSize % 4);
-	}
-
 	FileNameTable fnt
 	{
 		.Id = 0x464E5442,
@@ -91,6 +81,17 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	};
 
 	// TODO: Actually write FNT sub-tables
+
+	FileImages fi
+	{
+		.Id = 0x46494D47,
+		.ChunkSize = sizeof(FileImages) + fatEntries.back().End
+	};
+
+	if ((fi.ChunkSize % 4) != 0)
+	{
+		fi.ChunkSize += 4 - (fi.ChunkSize % 4);
+	}
 
 	Header header
 	{
@@ -137,8 +138,8 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		{
 			for (int i = 4 - (ofs.tellp() % 4); i-- > 0; )
 			{
-				char ff = 0xFF;
-				ofs.write(&ff, sizeof(char));
+				uint8_t ff = 0xFF;
+				ofs.write(reinterpret_cast<char*>(&ff), sizeof(uint8_t));
 			}
 		}
 	}
@@ -181,16 +182,7 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 
 	if (fnt.Id != 0x464E5442) { return Cleanup(ifs, NarcError::InvalidFileNameTableId); }
 
-	unique_ptr<uint16_t[]> fntEntries(new uint16_t[fnt.DirectoryCount]);
-
-	for (int i = 0; i < fnt.DirectoryCount; ++i)
-	{
-		ifs.read(reinterpret_cast<char*>(&fntEntries[i]), sizeof(uint16_t));
-	}
-
 	// TODO: Actually read FNT sub-tables
-
-	ifs.seekg(header.ChunkSize + fat.ChunkSize + fnt.ChunkSize);
 
 	FileImages fi;
 	ifs.read(reinterpret_cast<char*>(&fi), sizeof(FileImages));
