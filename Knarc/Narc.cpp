@@ -8,6 +8,7 @@
 #include <memory>
 #include <regex>
 #include <sstream>
+#include <stack>
 #include <string>
 #include <vector>
 
@@ -257,13 +258,13 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 		ifs.read(reinterpret_cast<char*>(&fntEntries.back().Utility), sizeof(uint16_t));
 	} while (static_cast<uint32_t>(ifs.tellg()) < (header.ChunkSize + fat.ChunkSize + sizeof(FileNameTable) + fntEntries[0].Offset));
 
-	unique_ptr<string[]> fileNames = make_unique<string[]>(0xF000);
+	unique_ptr<string[]> fileNames = make_unique<string[]>(0xFFFF);
 
 	for (size_t i = 0; i < fntEntries.size(); ++i)
 	{
 		ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + fat.ChunkSize + sizeof(FileNameTable) + fntEntries[i].Offset);
 
-		uint16_t fileId = 0;
+		uint16_t fileId = 0x0000;
 
 		for (uint8_t length = 0x80; length != 0x00; ifs.read(reinterpret_cast<char*>(&length), sizeof(uint8_t)))
 		{
@@ -285,7 +286,21 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 			}
 			else if (length <= 0xFF)
 			{
-				// TODO: Implement directory handling
+				length -= 0x80;
+				string directoryName;
+
+				for (int j = 0; j < length; ++j)
+				{
+					uint8_t c;
+					ifs.read(reinterpret_cast<char*>(&c), sizeof(uint8_t));
+
+					directoryName += c;
+				}
+
+				uint16_t directoryId;
+				ifs.read(reinterpret_cast<char*>(&directoryId), sizeof(uint16_t));
+
+				fileNames.get()[directoryId] = directoryName;
 			}
 			else
 			{
@@ -307,35 +322,101 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 	filesystem::create_directory(directory);
 	filesystem::current_path(directory);
 
-	for (int i = 0; i < fat.FileCount; ++i)
+	if (fnt.ChunkSize == 0x10)
 	{
-		ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + fat.ChunkSize + fnt.ChunkSize + 8 + fatEntries[i].Start);
-
-		unique_ptr<char[]> buffer = make_unique<char[]>(fatEntries[i].End - fatEntries[i].Start);
-		ifs.read(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
-
-		ostringstream oss;
-
-		if (fnt.ChunkSize == 0x10)
+		for (int i = 0; i < fat.FileCount; ++i)
 		{
+			ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + fat.ChunkSize + fnt.ChunkSize + 8 + fatEntries[i].Start);
+
+			unique_ptr<char[]> buffer = make_unique<char[]>(fatEntries[i].End - fatEntries[i].Start);
+			ifs.read(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
+
+			ostringstream oss;
 			oss << fileName.stem().string() << "_" << setfill('0') << setw(8) << i << ".bin";
-		}
-		else
-		{
-			oss << fileNames.get()[i];
-		}
 
-		ofstream ofs(oss.str(), ios::binary);
+			ofstream ofs(oss.str(), ios::binary);
 
-		if (!ofs.good())
-		{
+			if (!ofs.good())
+			{
+				ofs.close();
+
+				return Cleanup(ifs, NarcError::InvalidOutputFile);
+			}
+
+			ofs.write(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
 			ofs.close();
-
-			return Cleanup(ifs, NarcError::InvalidOutputFile);
 		}
+	}
+	else
+	{
+		filesystem::path absolutePath = filesystem::absolute(filesystem::current_path());
 
-		ofs.write(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
-		ofs.close();
+		for (size_t i = 0; i < fntEntries.size(); ++i)
+		{
+			filesystem::current_path(absolutePath);
+			stack<string> directories;
+
+			for (uint16_t j = fntEntries[i].Utility; j > 0xF000; j = fntEntries[j - 0xF000].Utility)
+			{
+				directories.push(fileNames.get()[j]);
+			}
+
+			for (; !directories.empty(); directories.pop())
+			{
+				filesystem::create_directory(directories.top());
+				filesystem::current_path(directories.top());
+			}
+
+			if (fntEntries[i].Utility >= 0xF000)
+			{
+				filesystem::create_directory(fileNames.get()[0xF000 + i]);
+				filesystem::current_path(fileNames.get()[0xF000 + i]);
+			}
+
+			ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + fat.ChunkSize + sizeof(FileNameTable) + fntEntries[i].Offset);
+
+			uint16_t fileId = 0x0000;
+
+			for (uint8_t length = 0x80; length != 0x00; ifs.read(reinterpret_cast<char*>(&length), sizeof(uint8_t)))
+			{
+				if (length <= 0x7F)
+				{
+					streampos savedPosition = ifs.tellg();
+
+					ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + fat.ChunkSize + fnt.ChunkSize + 8 + fatEntries[fntEntries[i].FirstFileId + fileId].Start);
+
+					unique_ptr<char[]> buffer = make_unique<char[]>(fatEntries[i].End - fatEntries[i].Start);
+					ifs.read(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
+
+					ofstream ofs(fileNames.get()[fntEntries[i].FirstFileId + fileId++], ios::binary);
+
+					if (!ofs.good())
+					{
+						ofs.close();
+
+						return Cleanup(ifs, NarcError::InvalidOutputFile);
+					}
+
+					ofs.write(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
+					ofs.close();
+
+					ifs.seekg(savedPosition);
+					ifs.seekg(length, ios::cur);
+				}
+				else if (length == 0x80)
+				{
+					// Reserved
+				}
+				else if (length <= 0xFF)
+				{
+					ifs.seekg(static_cast<uint64_t>(length) - 0x80 + 0x2, ios::cur);
+				}
+				else
+				{
+					return Cleanup(ifs, NarcError::InvalidFileNameTableEntryId);
+				}
+			}
+		}
 	}
 
 	ifs.close();
