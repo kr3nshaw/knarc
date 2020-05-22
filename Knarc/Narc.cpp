@@ -124,7 +124,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		}
 
 		streampos length = ifs.tellg();
-		unique_ptr<char[]> buffer(new char[static_cast<unsigned int>(length)]);
+		unique_ptr<char[]> buffer = make_unique<char[]>(static_cast<unsigned int>(length));
 
 		ifs.seekg(0);
 		ifs.read(buffer.get(), length);
@@ -168,7 +168,7 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 	if (fat.Id != 0x46415442) { return Cleanup(ifs, NarcError::InvalidFileAllocationTableId); }
 	if (fat.Reserved != 0x0) { return Cleanup(ifs, NarcError::InvalidFileAllocationTableReserved); }
 
-	unique_ptr<FileAllocationTableEntry[]> fatEntries(new FileAllocationTableEntry[fat.FileCount]);
+	unique_ptr<FileAllocationTableEntry[]> fatEntries = make_unique<FileAllocationTableEntry[]>(fat.FileCount);
 
 	for (int i = 0; i < fat.FileCount; ++i)
 	{
@@ -192,15 +192,15 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 		ifs.read(reinterpret_cast<char*>(&fntEntries.back().Utility), sizeof(uint16_t));
 	} while (static_cast<uint32_t>(ifs.tellg()) < (header.ChunkSize + fat.ChunkSize + sizeof(FileNameTable) + fntEntries[0].Offset));
 
-	unique_ptr<string[]> fileNames(new string[0xF000]);
+	unique_ptr<string[]> fileNames = make_unique<string[]>(0xF000);
 
 	for (size_t i = 0; i < fntEntries.size(); ++i)
 	{
 		ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + fat.ChunkSize + sizeof(FileNameTable) + fntEntries[i].Offset);
 
-		uint16_t id = 0;
+		uint16_t fileId = 0;
 
-		for (uint8_t length = 0x80; length != 0x00; ifs.read(reinterpret_cast<char*>(&length), sizeof(uint8_t)), ++id)
+		for (uint8_t length = 0x80; length != 0x00; ifs.read(reinterpret_cast<char*>(&length), sizeof(uint8_t)))
 		{
 			if (length <= 0x7F)
 			{
@@ -209,8 +209,10 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 					uint8_t c;
 					ifs.read(reinterpret_cast<char*>(&c), sizeof(uint8_t));
 
-					fileNames.get()[fntEntries[i].FirstFileId + id] += c;
+					fileNames.get()[fntEntries[i].FirstFileId + fileId] += c;
 				}
+
+				++fileId;
 			}
 			else if (length == 0x80)
 			{
@@ -244,7 +246,7 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 	{
 		ifs.seekg(static_cast<uint64_t>(header.ChunkSize) + fat.ChunkSize + fnt.ChunkSize + 8 + fatEntries[i].Start);
 
-		unique_ptr<char[]> buffer(new char[fatEntries[i].End - fatEntries[i].Start]);
+		unique_ptr<char[]> buffer = make_unique<char[]>(fatEntries[i].End - fatEntries[i].Start);
 		ifs.read(buffer.get(), fatEntries[i].End - fatEntries[i].Start);
 
 		ostringstream oss;
@@ -255,7 +257,7 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 		}
 		else
 		{
-			oss << fileNames.get()[i + 1];
+			oss << fileNames.get()[i];
 		}
 
 		ofstream ofs(oss.str(), ios::binary);
