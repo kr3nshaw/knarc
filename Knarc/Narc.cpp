@@ -65,7 +65,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	FileAllocationTable fat
 	{
 		.Id = 0x46415442,
-		.ChunkSize = 12 + fatEntries.size() * 8,
+		.ChunkSize = sizeof(FileAllocationTable) + (fatEntries.size() * sizeof(FileAllocationTableEntry)),
 		.FileCount = static_cast<uint16_t>(fatEntries.size()),
 		.Reserved = 0x0
 	};
@@ -73,8 +73,13 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	FileImages fi
 	{
 		.Id = 0x46494D47,
-		.ChunkSize = 8 + fatEntries.back().End
+		.ChunkSize = sizeof(FileImages) + fatEntries.back().End
 	};
+
+	if ((fi.ChunkSize % 4) != 0)
+	{
+		fi.ChunkSize += 4 - (fi.ChunkSize % 4);
+	}
 
 	FileNameTable fnt
 	{
@@ -92,7 +97,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		.Id = 0x4352414E,
 		.ByteOrderMark = 0xFFFE,
 		.Version = 0x100,
-		.FileSize = 0x10 + fat.ChunkSize + fnt.ChunkSize + fi.ChunkSize,
+		.FileSize = sizeof(Header) + fat.ChunkSize + fnt.ChunkSize + fi.ChunkSize,
 		.ChunkSize = 0x10,
 		.ChunkCount = 0x3
 	};
