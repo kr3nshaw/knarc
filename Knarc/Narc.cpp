@@ -112,17 +112,17 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	FileNameTable fnt
 	{
 		.Id = 0x464E5442,
-		.ChunkSize = 0x8 + (fntEntries.size() * sizeof(FileNameTableEntry))
+		.ChunkSize = sizeof(FileNameTable) + (fntEntries.size() * sizeof(FileNameTableEntry))
 	};
 
 	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
 	{
 		for (const auto& fn : fileNames)
 		{
-			fnt.ChunkSize += 0x1 + fn.size();
+			fnt.ChunkSize += sizeof(uint8_t) + fn.size();
 		}
 
-		fnt.ChunkSize += 0x1;
+		fnt.ChunkSize += sizeof(uint8_t);
 	}
 
 	if ((fnt.ChunkSize % 4) != 0)
@@ -147,7 +147,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		.ByteOrderMark = 0xFFFE,
 		.Version = 0x100,
 		.FileSize = sizeof(Header) + fat.ChunkSize + fnt.ChunkSize + fi.ChunkSize,
-		.ChunkSize = 0x10,
+		.ChunkSize = sizeof(Header),
 		.ChunkCount = 0x3
 	};
 
