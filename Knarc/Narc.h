@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 enum class NarcError
 {
@@ -77,6 +78,8 @@ class Narc
 
 		void AlignDword(std::ofstream& ofs, uint8_t paddingChar);
 
-		bool Cleanup(std::ifstream& ifs, const NarcError& ne);
-		bool Cleanup(std::ofstream& ofs, const NarcError& ne);
+		bool Cleanup(std::ifstream& ifs, const NarcError& e);
+		bool Cleanup(std::ofstream& ofs, const NarcError& e);
+
+		std::vector<std::filesystem::directory_entry> OrderedRecursiveDirectoryIterator(const std::filesystem::path& path) const;
 };
