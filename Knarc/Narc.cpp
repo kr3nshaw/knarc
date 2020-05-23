@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iomanip>
 #include <ios>
+#include <map>
 #include <memory>
 #include <regex>
 #include <sstream>
@@ -44,7 +45,7 @@ bool Narc::Cleanup(ofstream& ofs, const NarcError& e)
 	return false;
 }
 
-vector<filesystem::directory_entry> Narc::OrderedRecursiveDirectoryIterator(const filesystem::path& path) const
+vector<filesystem::directory_entry> Narc::OrderedDirectoryIterator(const filesystem::path& path, bool recursive) const
 {
 	vector<filesystem::directory_entry> v;
 
@@ -72,15 +73,18 @@ vector<filesystem::directory_entry> Narc::OrderedRecursiveDirectoryIterator(cons
 			return aStr < bStr;
 		});
 
-	size_t vSize = v.size();
-
-	for (size_t i = 0; i < vSize; ++i)
+	if (recursive)
 	{
-		if (v[i].is_directory())
-		{
-			vector<filesystem::directory_entry> v2 = OrderedRecursiveDirectoryIterator(v[i]);
+		size_t vSize = v.size();
 
-			v.insert(v.end(), v2.begin(), v2.end());
+		for (size_t i = 0; i < vSize; ++i)
+		{
+			if (v[i].is_directory())
+			{
+				vector<filesystem::directory_entry> temp = OrderedDirectoryIterator(v[i], true);
+
+				v.insert(v.end(), temp.begin(), temp.end());
+			}
 		}
 	}
 
@@ -99,40 +103,13 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	if (!ofs.good()) { return Cleanup(ofs, NarcError::InvalidOutputFile); }
 
 	vector<FileAllocationTableEntry> fatEntries;
-	vector<FileNameTableEntry> fntEntries;
-	unique_ptr<string[]> fileNames = make_unique<string[]>(0xFFFF);
-	uint16_t fileCounter = 0;
-	uint16_t directoryCounter = 0;
+	uint16_t directoryCounter = 1;
 
-	fntEntries.push_back(FileNameTableEntry
-		{
-			.Offset = 0x0,
-			.FirstFileId = fileCounter,
-			.Utility = 0x1
-		});
-
-	FileNameTableEntry temp
-	{
-		.Offset = fntEntries.back().Offset,
-		.FirstFileId = fileCounter,
-		.Utility = static_cast<uint16_t>(0xF000 + directoryCounter)
-	};
-
-	for (const auto& de : OrderedRecursiveDirectoryIterator(directory))
+	for (const auto& de : OrderedDirectoryIterator(directory, true))
 	{
 		if (de.is_directory())
 		{
-			fntEntries.push_back(temp);
-
-			fntEntries.back().Offset += sizeof(uint8_t) + de.path().filename().string().size() + 0x2 + sizeof(uint8_t);
-			fileNames.get()[0xF000 + ++directoryCounter] = de.path().filename().string();
-
-			temp = FileNameTableEntry
-			{
-				.Offset = fntEntries.back().Offset,
-				.FirstFileId = fileCounter,
-				.Utility = static_cast<uint16_t>(0xF000 + directoryCounter)
-			};
+			++directoryCounter;
 		}
 		else
 		{
@@ -153,19 +130,8 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 			}
 
 			fatEntries.back().End = fatEntries.back().Start + static_cast<uint32_t>(de.file_size());
-			temp.Offset += sizeof(uint8_t) + de.path().filename().string().size();
-			fileNames.get()[fileCounter] = de.path().filename().string();
-
-			temp.FirstFileId = ++fileCounter;
 		}
 	}
-
-	for (auto& entry : fntEntries)
-	{
-		entry.Offset += fntEntries.size() * sizeof(FileNameTableEntry);
-	}
-
-	fntEntries[0].Utility = static_cast<uint16_t>(fntEntries.size());
 
 	FileAllocationTable fat
 	{
@@ -174,6 +140,86 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		.FileCount = static_cast<uint16_t>(fatEntries.size()),
 		.Reserved = 0x0
 	};
+	
+	map<filesystem::path, string> subTables;
+	vector<filesystem::path> paths;
+
+	directoryCounter = 0;
+
+	for (const auto& de : OrderedDirectoryIterator(directory, true))
+	{
+		if (!subTables.count(de.path().parent_path()))
+		{
+			subTables.insert({ de.path().parent_path(), "" });
+			paths.push_back(de.path().parent_path());
+		}
+
+		if (de.is_directory())
+		{
+			++directoryCounter;
+
+			subTables[de.path().parent_path()] += static_cast<uint8_t>(0x80 + de.path().filename().string().size());
+			subTables[de.path().parent_path()] += de.path().filename().string();
+			subTables[de.path().parent_path()] += (0xF000 + directoryCounter) & 0xFF;
+			subTables[de.path().parent_path()] += (0xF000 + directoryCounter) >> 8;
+		}
+		else
+		{
+			subTables[de.path().parent_path()] += static_cast<uint8_t>(de.path().filename().string().size());
+			subTables[de.path().parent_path()] += de.path().filename().string();
+		}
+	}
+
+	for (auto& subTable : subTables)
+	{
+		subTable.second += '\0';
+	}
+
+	vector<FileNameTableEntry> fntEntries;
+
+	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
+	{
+		fntEntries.push_back(
+			{
+				.Offset = (directoryCounter + 1) * sizeof(FileNameTableEntry),
+				.FirstFileId = 0x0,
+				.Utility = static_cast<uint16_t>(directoryCounter + 1)
+			});
+
+		for (uint16_t i = 0; i < directoryCounter; ++i)
+		{
+			fntEntries.push_back(
+				{
+					.Offset = fntEntries.back().Offset + subTables[paths[i]].size(),
+					.FirstFileId = fntEntries.back().FirstFileId,
+					.Utility = 0x0
+				});
+
+			for (size_t j = 0; j < (subTables[paths[i]].size() - 1); ++j)
+			{
+				if (static_cast<uint8_t>(subTables[paths[i]][j]) <= 0x7F)
+				{
+					j += static_cast<uint8_t>(subTables[paths[i]][j]);
+					++fntEntries.back().FirstFileId;
+				}
+				else if (static_cast<uint8_t>(subTables[paths[i]][j]) <= 0xFF)
+				{
+					j += static_cast<uint8_t>(subTables[paths[i]][j]) - 0x80 + 0x2;
+				}
+			}
+
+			fntEntries.back().Utility = 0xF000 + (find(paths.begin(), paths.end(), paths[i + 1].parent_path()) - paths.begin());
+		}
+	}
+	else
+	{
+		fntEntries.push_back(
+			{
+				.Offset = 0x4,
+				.FirstFileId = 0x0,
+				.Utility = 0x1
+			});
+	}
 
 	FileNameTable fnt
 	{
@@ -183,24 +229,9 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
 	{
-		for (size_t i = 0; i < 0xF000; ++i)
+		for (auto& subTable : subTables)
 		{
-			if (fileNames.get()[i] == "")
-			{
-				break;
-			}
-
-			fnt.ChunkSize += sizeof(uint8_t) + fileNames.get()[i].size();
-		}
-
-		for (size_t i = 0xF001; i < 0xFFFF; ++i)
-		{
-			if (fileNames.get()[i] == "")
-			{
-				break;
-			}
-
-			fnt.ChunkSize += sizeof(uint8_t) + fileNames.get()[i].size() + 0x2 + sizeof(uint8_t);
+			fnt.ChunkSize += subTable.second.size();
 		}
 	}
 
@@ -240,64 +271,24 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 	ofs.write(reinterpret_cast<char*>(&fnt), sizeof(FileNameTable));
 
+	for (auto& entry : fntEntries)
+	{
+		ofs.write(reinterpret_cast<char*>(&entry), sizeof(FileNameTableEntry));
+	}
+
 	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
 	{
-		for (auto& entry : fntEntries)
+		for (const auto& path : paths)
 		{
-			ofs.write(reinterpret_cast<char*>(&entry), sizeof(FileNameTableEntry));
+			ofs << subTables[path];
 		}
-
-		filesystem::path currentDirectory = directory;
-		uint16_t directoryCounter = 0;
-
-		for (const auto& de : OrderedRecursiveDirectoryIterator(directory))
-		{
-			if (de.path().parent_path() != currentDirectory)
-			{
-				uint8_t zero = 0x00;
-				ofs.write(reinterpret_cast<char*>(&zero), sizeof(uint8_t));
-
-				currentDirectory = de.path().parent_path();
-			}
-
-			uint8_t fnLength = static_cast<uint8_t>(de.path().filename().string().size());
-
-			if (de.is_directory())
-			{
-				fnLength += 0x80;
-				++directoryCounter;
-			}
-
-			ofs.write(reinterpret_cast<char*>(&fnLength), sizeof(uint8_t));
-			ofs.write(de.path().filename().string().c_str(), de.path().filename().string().size());
-
-			if (de.is_directory())
-			{
-				uint16_t directoryId = 0xF000 + directoryCounter;
-				ofs.write(reinterpret_cast<char*>(&directoryId), sizeof(uint16_t));
-			}
-		}
-
-		uint8_t zero = 0x00;
-		ofs.write(reinterpret_cast<char*>(&zero), sizeof(uint8_t));
-	}
-	else
-	{
-		FileNameTableEntry temp =
-		{
-			.Offset = 0x4,
-			.FirstFileId = 0x0,
-			.Utility = 0x1
-		};
-
-		ofs.write(reinterpret_cast<char*>(&temp), sizeof(FileNameTableEntry));
 	}
 
 	AlignDword(ofs, 0xFF);
 
 	ofs.write(reinterpret_cast<char*>(&fi), sizeof(FileImages));
 
-	for (const auto& de : OrderedRecursiveDirectoryIterator(directory))
+	for (const auto& de : OrderedDirectoryIterator(directory, true))
 	{
 		if (de.is_directory())
 		{

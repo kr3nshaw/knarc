@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <vector>
 
 enum class NarcError
@@ -81,5 +82,5 @@ class Narc
 		bool Cleanup(std::ifstream& ifs, const NarcError& e);
 		bool Cleanup(std::ofstream& ofs, const NarcError& e);
 
-		std::vector<std::filesystem::directory_entry> OrderedRecursiveDirectoryIterator(const std::filesystem::path& path) const;
+		std::vector<std::filesystem::directory_entry> OrderedDirectoryIterator(const std::filesystem::path& path, bool recursive) const;
 };
