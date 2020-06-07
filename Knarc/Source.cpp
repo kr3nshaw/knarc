@@ -30,7 +30,7 @@ void PrintError(NarcError error)
 
 int main(int argc, char* argv[])
 {
-	if (argc < 3)
+	if (argc != 5)
 	{
 		cout << "OVERVIEW: Knarc" << endl << endl;
 		cout << "USAGE: knarc [options] <inputs>" << endl << endl;
@@ -43,6 +43,8 @@ int main(int argc, char* argv[])
 	}
 
 	string directory = "";
+	string fileName = "";
+	bool pack = false;
 
 	for (int i = 1; i < argc; ++i)
 	{
@@ -59,13 +61,6 @@ int main(int argc, char* argv[])
 		}
 		else if (!strcmp(argv[i], "-p"))
 		{
-			if (directory == "")
-			{
-				cerr << "ERROR: No directory specified" << endl;
-
-				return 1;
-			}
-
 			if (i == (argc - 1))
 			{
 				cerr << "ERROR: No NARC specified to pack to" << endl;
@@ -73,24 +68,11 @@ int main(int argc, char* argv[])
 				return 1;
 			}
 
-			Narc narc;
-
-			if (!narc.Pack(argv[++i], directory))
-			{
-				PrintError(narc.GetError());
-
-				return 1;
-			}
+			fileName = argv[++i];
+			pack = true;
 		}
 		else if (!strcmp(argv[i], "-u"))
 		{
-			if (directory == "")
-			{
-				cerr << "ERROR: No directory specified" << endl;
-
-				return 1;
-			}
-
 			if (i == (argc - 1))
 			{
 				cerr << "ERROR: No NARC specified to unpack from" << endl;
@@ -98,14 +80,28 @@ int main(int argc, char* argv[])
 				return 1;
 			}
 
-			Narc narc;
+			fileName = argv[++i];
+		}
+	}
 
-			if (!narc.Unpack(argv[++i], directory))
-			{
-				PrintError(narc.GetError());
+	Narc narc;
 
-				return 1;
-			}
+	if (pack)
+	{
+		if (!narc.Pack(fileName, directory))
+		{
+			PrintError(narc.GetError());
+
+			return 1;
+		}
+	}
+	else
+	{
+		if (!narc.Unpack(fileName, directory))
+		{
+			PrintError(narc.GetError());
+
+			return 1;
 		}
 	}
 

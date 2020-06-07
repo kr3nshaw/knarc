@@ -1,6 +1,7 @@
 #include "Narc.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -229,7 +230,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
 	{
-		for (auto& subTable : subTables)
+		for (const auto& subTable : subTables)
 		{
 			fnt.ChunkSize += subTable.second.size();
 		}
