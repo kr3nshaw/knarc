@@ -141,7 +141,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		.FileCount = static_cast<uint16_t>(fatEntries.size()),
 		.Reserved = 0x0
 	};
-	
+
 	map<filesystem::path, string> subTables;
 	vector<filesystem::path> paths;
 
@@ -178,7 +178,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 	vector<FileNameTableEntry> fntEntries;
 
-	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
+	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{4,8}\\.bin")))
 	{
 		fntEntries.push_back(
 			{
@@ -228,7 +228,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		.ChunkSize = sizeof(FileNameTable) + (fntEntries.size() * sizeof(FileNameTableEntry))
 	};
 
-	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
+	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{4,8}\\.bin")))
 	{
 		for (const auto& subTable : subTables)
 		{
@@ -277,7 +277,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 		ofs.write(reinterpret_cast<char*>(&entry), sizeof(FileNameTableEntry));
 	}
 
-	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{8}\\.bin")))
+	if (!regex_match(filesystem::directory_iterator(directory)->path().string(), regex(".*_\\d{4,8}\\.bin")))
 	{
 		for (const auto& path : paths)
 		{
