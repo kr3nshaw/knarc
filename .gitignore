@@ -301,3 +301,5 @@ caesar
 # macOS Garbage
 .DS_Store
 ._*
+
+.vscode/

@@ -1,4 +1,5 @@
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
@@ -41,7 +42,7 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	string directory = ".";
+	string directory = "";
 
 	for (int i = 1; i < argc; ++i)
 	{
@@ -58,6 +59,13 @@ int main(int argc, char* argv[])
 		}
 		else if (!strcmp(argv[i], "-p"))
 		{
+			if (directory == "")
+			{
+				cerr << "ERROR: No directory specified" << endl;
+
+				return 1;
+			}
+
 			if (i == (argc - 1))
 			{
 				cerr << "ERROR: No NARC specified to pack to" << endl;
@@ -76,6 +84,13 @@ int main(int argc, char* argv[])
 		}
 		else if (!strcmp(argv[i], "-u"))
 		{
+			if (directory == "")
+			{
+				cerr << "ERROR: No directory specified" << endl;
+
+				return 1;
+			}
+
 			if (i == (argc - 1))
 			{
 				cerr << "ERROR: No NARC specified to unpack from" << endl;
