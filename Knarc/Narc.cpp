@@ -137,7 +137,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 	FileAllocationTable fat
 	{
 		.Id = 0x46415442,
-		.ChunkSize = sizeof(FileAllocationTable) + ((uint32_t)fatEntries.size() * sizeof(FileAllocationTableEntry)),
+		.ChunkSize = sizeof(FileAllocationTable) + (static_cast<uint32_t>(fatEntries.size()) * sizeof(FileAllocationTableEntry)),
 		.FileCount = static_cast<uint16_t>(fatEntries.size()),
 		.Reserved = 0x0
 	};
@@ -319,7 +319,7 @@ bool Narc::Pack(const filesystem::path& fileName, const filesystem::path& direct
 
 	ofs.close();
 
-	return error == NarcError::None ? true : false;
+	return error == NarcError::None;
 }
 
 bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& directory)
@@ -532,5 +532,5 @@ bool Narc::Unpack(const filesystem::path& fileName, const filesystem::path& dire
 
 	ifs.close();
 
-	return error == NarcError::None ? true : false;
+	return error == NarcError::None;
 }
